@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Bot, Zap, Edit3, Copy, Plus, X, ChevronDown, AlertCircle } from 'lucide-react';
+import { Bot, Zap, Edit3, Copy, Plus, X, ChevronDown, AlertCircle, TestTube } from 'lucide-react';
+import { sendWebhookTest, sendWebhookWithFormData } from './utils/webhookTest';
 
 interface FormData {
   agentName: string;
@@ -20,6 +21,7 @@ function App() {
 
   const [generatedPrompt, setGeneratedPrompt] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
   const [error, setError] = useState<string>('');
   const [expandedSections, setExpandedSections] = useState({
     agentName: true,
@@ -59,33 +61,61 @@ function App() {
     }));
   };
 
+  const testWebhookConnection = async () => {
+    setIsTesting(true);
+    setError('');
+    
+    try {
+      const result = await sendWebhookTest();
+      console.log('Webhook test successful:', result);
+      alert('Webhook connection test successful! Check console for details.');
+    } catch (error) {
+      console.error('Webhook test failed:', error);
+      setError(`Webhook test failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
   const handleGenerate = async () => {
     setIsGenerating(true);
     setError('');
     setGeneratedPrompt('');
     
     try {
-      const payload = {
-        agentName: formData.agentName,
-        primaryFunction: formData.primaryFunction,
-        knowledgeResources: formData.knowledgeResources.filter(resource => resource.trim() !== ''),
-        sampleScenarios: formData.sampleScenarios,
-        toneAndConduct: formData.toneAndConduct
+      // Clean and format the data properly
+      const cleanedFormData = {
+        agentName: formData.agentName.trim(),
+        primaryFunction: formData.primaryFunction.trim(),
+        knowledgeResources: formData.knowledgeResources
+          .filter(resource => resource.trim() !== '')
+          .map(resource => resource.trim()),
+        sampleScenarios: formData.sampleScenarios.trim(),
+        toneAndConduct: formData.toneAndConduct.trim()
       };
 
-      console.log('Sending payload:', payload);
+      console.log('Sending cleaned payload:', cleanedFormData);
 
+      // Try the direct webhook first
+      try {
+        const result = await sendWebhookWithFormData(cleanedFormData);
+        setGeneratedPrompt(typeof result === 'string' ? result : JSON.stringify(result, null, 2));
+        return;
+      } catch (directError) {
+        console.log('Direct webhook failed, trying proxy:', directError);
+      }
+
+      // Fallback to proxy
       const response = await fetch('/api/generate-prompt', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json, text/plain, */*',
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(cleanedFormData)
       });
 
-      console.log('Response status:', response.status);
-      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+      console.log('Proxy response status:', response.status);
 
       if (response.ok) {
         const contentType = response.headers.get('content-type');
@@ -136,7 +166,6 @@ function App() {
   const copyToClipboard = async () => {
     try {
       await navigator.clipboard.writeText(generatedPrompt);
-      // You could add a toast notification here
       console.log('Copied to clipboard');
     } catch (err) {
       console.error('Failed to copy:', err);
@@ -144,7 +173,6 @@ function App() {
   };
 
   const editPrompt = () => {
-    // For demo purposes, this would open an editor
     alert('Edit functionality would open a rich text editor');
   };
 
@@ -158,9 +186,28 @@ function App() {
       <div className="bg-gray-800 border-b border-gray-700 px-6 py-4">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">AI Agent Designer</h1>
-          <button className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors">
-            <span>← Back to Main Website</span>
-          </button>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={testWebhookConnection}
+              disabled={isTesting}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 rounded-lg transition-colors text-sm"
+            >
+              {isTesting ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  Testing...
+                </>
+              ) : (
+                <>
+                  <TestTube className="w-4 h-4" />
+                  Test Webhook
+                </>
+              )}
+            </button>
+            <button className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors">
+              <span>← Back to Main Website</span>
+            </button>
+          </div>
         </div>
       </div>
 
